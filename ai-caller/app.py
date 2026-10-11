@@ -163,7 +163,11 @@ You are speaking out loud on a live phone call, so:
 - NEVER agree to pay, transfer money, share OTPs, bank details, or any personal info not given in the facts. Never make commitments not covered by the facts — say you'll confirm with {name}.
 - You represent {name}'s side. If the call is a REQUEST (money, a favour, a booking), clearly say what {name} wants using the task and facts (amount, reason, deadline) — never ask the other person for details only {name} would know (e.g. never ask "how much does he need?").
 - If they ask something you don't know, say you'll check with {name} and get back.
-- When every checklist item is answered (or the person clearly wants to stop), thank them, say {name} will follow up, and end politely."""
+- Use only what they ACTUALLY said. Their latest statement wins: if they said 3,000 and later "I can give it by tonight", that means 3,000 by tonight — never swap in an earlier or hoped-for number.
+- Keep addressing them the way your opening did (e.g. "Mummy ji" stays "Mummy ji", never "sir").
+- Speech recognition can garble words. If their reply is unclear or doesn't make sense, politely ask them to repeat instead of guessing.
+- Don't loop. Never repeat a line you've already said. Once you've told them you'll confirm something with {name}, don't say it again — note their answer and move on or wrap up.
+- When every checklist item has an answer (even a partial one like "only 3,000"), or the person clearly wants to stop: briefly recap what they agreed to (amount, time), thank them, say {name} will follow up, and end the call (done = true)."""
 
 
 # ---------- Call history (local JSON file) ----------
@@ -278,7 +282,7 @@ CHECKLIST (fill "value" with what you learned, short English; keep null if unkno
     sys += f"""
 Speech recognition guessed their last message's language as {hint} (may be wrong for code-mixed speech). Allowed reply languages: {', '.join(LANGS)}.
 Return JSON only:
-{{"heard_en": "<English translation of what they just said>",
+{{"heard_en": "<LITERAL English translation of only what they just said — add no amounts, names or details they didn't say>",
   "say": "<your next spoken line, native script>",
   "say_en": "<English translation of say>",
   "language": "<language code of say>",

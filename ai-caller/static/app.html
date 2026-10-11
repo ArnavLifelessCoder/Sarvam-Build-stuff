@@ -757,11 +757,12 @@ function toggleTakeover() {
   if (mode === "paused") { addLine("sys", "AI is back on the call"); mode = "idle"; loop(); return; }
   stopAudio(); recAbort?.(); setMode("paused"); addLine("sys", "you took over");
 }
-$("takeoverBtn").onclick = toggleTakeover;
+// blur after click: a focused button + the Space shortcut would otherwise toggle twice (pause then instantly resume)
+$("takeoverBtn").onclick = e => { e.currentTarget.blur(); toggleTakeover(); };
 $("endBtn").onclick = () => endCall();
 
 document.addEventListener("keydown", e => {
-  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+  const typing = ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(document.activeElement.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
     if (!$("setup").classList.contains("hidden")) { e.preventDefault(); prepare(); }
     else if (!$("review").classList.contains("hidden")) { e.preventDefault(); $("rvStart").click(); }
