@@ -1,0 +1,257 @@
+"""Mere Liye Call Kar — AI caller backend.
+
+Ears: saaras:v4 (STT) · Brain: sarvam-105b-conversations / sarvam-105b · Mouth: bulbul (TTS)
+"""
+import asyncio
+import base64
+import json
+import os
+import re
+from pathlib import Path
+
+import httpx
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+load_dotenv(Path(__file__).parent / ".env")
+KEY = os.environ.get("SARVAM_API_KEY", "").strip()
+BASE = "https://api.sarvam.ai"
+HEADERS = {"api-subscription-key": KEY}
+
+TURN_MODEL = "sarvam-105b-conversations"  # fast, tuned for voice agents
+SMART_MODEL = "sarvam-105b"  # post-call summary (reasoning off — 105b with reasoning is ~30s+)
+
+# language code -> (name, tts model, speaker). Female voices so the agent persona is consistent.
+LANGS = {
+    "hi-IN": ("Hindi", "bulbul:v4-flash", "ritu_hi_conversation"),
+    "en-IN": ("English", "bulbul:v4-flash", "simran_en_conversation"),
+    "kn-IN": ("Kannada", "bulbul:v4-flash", "chaitra_kn_conversation"),
+    "te-IN": ("Telugu", "bulbul:v4-flash", "pooja_te_conversation"),
+    "mr-IN": ("Marathi", "bulbul:v4-flash", "ishita_mr_conversational"),
+    "bn-IN": ("Bengali", "bulbul:v4-flash", "roopa_bn_conversational"),
+    "gu-IN": ("Gujarati", "bulbul:v4-flash", "pooja_gu_conversational"),
+    "ta-IN": ("Tamil", "bulbul:v3", "ishita"),
+    "ml-IN": ("Malayalam", "bulbul:v3", "ishita"),
+    "pa-IN": ("Punjabi", "bulbul:v3", "ishita"),
+    "od-IN": ("Odia", "bulbul:v3", "ishita"),
+}
+
+FILLERS = {
+    "hi-IN": ["हाँ जी...", "अच्छा, एक सेकंड।", "ठीक है..."],
+    "en-IN": ["Okay...", "Right, one second.", "Got it..."],
+    "kn-IN": ["ಹೌದಾ...", "ಸರಿ, ಒಂದು ನಿಮಿಷ.", "ಆಯ್ತು..."],
+    "te-IN": ["అవునా...", "సరే, ఒక్క నిమిషం.", "అలాగే..."],
+    "mr-IN": ["हो...", "बरं, एक मिनिट.", "ठीक आहे..."],
+    "bn-IN": ["হ্যাঁ...", "আচ্ছা, এক সেকেন্ড।", "ঠিক আছে..."],
+    "gu-IN": ["હા...", "સારું, એક સેકન્ડ.", "બરાબર..."],
+    "ta-IN": ["சரி...", "ஒரு நிமிஷம்.", "ஆமா..."],
+    "ml-IN": ["ശരി...", "ഒരു നിമിഷം.", "ആണോ..."],
+    "pa-IN": ["ਹਾਂ ਜੀ...", "ਅੱਛਾ, ਇੱਕ ਸਕਿੰਟ.", "ਠੀਕ ਹੈ..."],
+    "od-IN": ["ହଁ...", "ଆଚ୍ଛା, ଗୋଟେ ସେକେଣ୍ଡ.", "ଠିକ୍ ଅଛି..."],
+}
+
+app = FastAPI(title="Mere Liye Call Kar")
+client = httpx.AsyncClient(timeout=60)
+_filler_cache: dict[str, list[str]] = {}
+
+
+# ---------- Sarvam helpers ----------
+
+def _err(r: httpx.Response, what: str):
+    try:
+        msg = r.json().get("error", {}).get("message") or r.text
+    except Exception:
+        msg = r.text
+    raise HTTPException(502, f"{what} failed ({r.status_code}): {msg[:300]}")
+
+
+async def tts(text: str, lang: str) -> str:
+    """Returns base64 WAV."""
+    _, model, speaker = LANGS.get(lang, LANGS["hi-IN"])
+    r = await client.post(f"{BASE}/text-to-speech", headers=HEADERS, json={
+        "model": model, "text": text[:2400], "language_code": lang if lang in LANGS else "hi-IN",
+        "speaker": speaker, "speech_sample_rate": 24000, "pace": 1.05,
+    })
+    if r.status_code != 200:
+        _err(r, "Text-to-speech")
+    return r.json()["audios"][0]
+
+
+async def stt(audio: bytes, filename: str, keyterms: list[str]) -> tuple[str, str | None]:
+    data = {"model": "saaras:v4", "language_code": "unknown"}
+    if keyterms:
+        data["keyterms"] = json.dumps(keyterms[:50])
+    r = await client.post(f"{BASE}/speech-to-text", headers=HEADERS,
+                          files={"file": (filename, audio, "audio/webm")}, data=data)
+    if r.status_code != 200:
+        _err(r, "Speech-to-text")
+    j = r.json()
+    return (j.get("transcript") or "").strip(), j.get("language_code")
+
+
+def _parse_json(text: str) -> dict:
+    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
+    m = re.search(r"\{.*\}", text, re.S)
+    return json.loads(m.group(0) if m else text)
+
+
+async def chat_json(model: str, messages: list[dict], max_tokens: int, session: str | None = None,
+                    effort: str | None = "low") -> dict:
+    headers = dict(HEADERS)
+    if session:
+        headers["x-session-affinity"] = session  # reuse prompt cache across turns of one call
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens,
+            "temperature": 0.3, "response_format": {"type": "json_object"}}
+    if effort == "off":
+        body["reasoning_effort"] = None  # explicit null disables reasoning
+    elif effort:
+        body["reasoning_effort"] = effort
+    for attempt in range(2):
+        r = await client.post(f"{BASE}/v1/chat/completions", headers=headers, json=body)
+        if r.status_code != 200:
+            _err(r, "Chat")
+        content = r.json()["choices"][0]["message"].get("content")
+        if content:
+            try:
+                return _parse_json(content)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        body["max_tokens"] = max_tokens * 2  # reasoning ate the budget or JSON was cut — retry bigger
+    raise HTTPException(502, "Model did not return valid JSON")
+
+
+# ---------- Prompts ----------
+
+def agent_rules(name: str) -> str:
+    return f"""You are a polite, warm female phone assistant making a call ON BEHALF OF {name}.
+You are speaking out loud on a live phone call, so:
+- Speak in 1-2 short, natural spoken sentences per turn. No lists, no emojis, no markdown.
+- Use a respectful local register ("ji", "sir/madam", "anna", "bhaiya" as fits the language).
+- Reply in the SAME language the other person used in their LAST message (judge it yourself from the words). If they switch, you switch. Write in that language's native script (Hinglish speech can be Devanagari Hindi with common English words).
+- Ask ONE thing at a time. Repeat back important numbers/dates to confirm ("12,000 bola na?").
+- Write money with commas (12,000) and never as symbols-only.
+- You are {name}'s assistant. Never claim to be {name}. You never visit, pay or act yourself — {name} does (say "{name} will come", not "I will come"). If asked whether you are a robot/AI, say honestly that you are {name}'s AI assistant.
+- NEVER agree to pay, transfer money, share OTPs, bank details, or any personal info not given in the facts. Never make commitments not covered by the facts — say you'll confirm with {name}.
+- If they ask something you don't know, say you'll check with {name} and get back.
+- When every checklist item is answered (or the person clearly wants to stop), thank them, say {name} will follow up, and end politely."""
+
+
+# ---------- API ----------
+
+class PlanIn(BaseModel):
+    task: str
+    facts: str = ""
+    name: str = "Arnav"
+    language: str = "auto"
+
+
+@app.post("/api/plan")
+async def plan(p: PlanIn):
+    lang = p.language if p.language in LANGS else "hi-IN"
+    lang_name = LANGS[lang][0]
+    out = await chat_json(TURN_MODEL, [
+        {"role": "system", "content": agent_rules(p.name) + """
+
+You are now PREPARING the call. Return JSON only:
+{"callee": "<who we are calling, 2-4 words English>",
+ "checklist": ["<3 to 6 short English questions we must get answered>"],
+ "opening": "<the first thing you say when they pick up, in the target language script: greet, say you are calling on behalf of NAME, state the purpose in a few words, ask the first checklist question>",
+ "opening_en": "<English translation of opening>"}"""},
+        {"role": "user", "content": f"Caller name: {p.name}\nTask: {p.task}\nFacts you may use: {p.facts or '(none)'}\nTarget language: {lang_name} ({lang})"},
+    ], max_tokens=1200)
+    checklist = [{"item": str(i), "value": None} for i in out.get("checklist", [])][:6]
+    opening = out.get("opening") or "Namaste ji."
+    audio = await tts(opening, lang)
+    return {"callee": out.get("callee", "the other person"), "checklist": checklist,
+            "opening": opening, "opening_en": out.get("opening_en", ""), "language": lang, "audio": audio}
+
+
+@app.post("/api/turn")
+async def turn(state: str = Form(...), audio: UploadFile | None = File(None), text: str = Form("")):
+    """One conversational turn. `state` = JSON {task, facts, name, language, checklist, history, call_id, silences}."""
+    s = json.loads(state)
+    name = s.get("name") or "Arnav"
+    heard, detected = text.strip(), None
+    if audio is not None and not heard:
+        keyterms = [name] + re.findall(r"[A-Z][a-zA-Z]{2,}", s.get("facts", ""))
+        heard, detected = await stt(await audio.read(), audio.filename or "turn.webm", list(dict.fromkeys(keyterms)))
+
+    if not heard and s.get("silences", 0) < 1:
+        return {"empty": True}  # let the browser listen again once before nudging
+
+    cur = s.get("language", "hi-IN")
+    hint = detected if detected in LANGS else cur
+    sys = agent_rules(name) + f"""
+
+TASK: {s.get('task')}
+FACTS you may use: {s.get('facts') or '(none)'}
+CHECKLIST (fill "value" with what you learned, short English; keep null if unknown):
+{json.dumps(s.get('checklist', []), ensure_ascii=False)}
+
+Speech recognition guessed their last message's language as {hint} (may be wrong for code-mixed speech). Allowed reply languages: {', '.join(LANGS)}.
+Return JSON only:
+{{"heard_en": "<English translation of what they just said>",
+  "say": "<your next spoken line, native script>",
+  "say_en": "<English translation of say>",
+  "language": "<language code of say>",
+  "checklist": <the full checklist array with updated values>,
+  "done": <true only if this is your closing goodbye line>}}"""
+    msgs = [{"role": "system", "content": sys}]
+    for h in s.get("history", [])[-20:]:
+        msgs.append({"role": "assistant" if h["who"] == "agent" else "user", "content": h["text"]})
+    msgs.append({"role": "user", "content": heard or "[silence — no response. Politely check if they can hear you.]"})
+
+    out = await chat_json(TURN_MODEL, msgs, max_tokens=900, session=s.get("call_id"))
+    lang = out.get("language") if out.get("language") in LANGS else hint
+    say = (out.get("say") or "").strip() or "Ji?"
+    checklist = out.get("checklist")
+    if not isinstance(checklist, list) or len(checklist) != len(s.get("checklist", [])):
+        checklist = s.get("checklist", [])
+    return {"heard": heard, "heard_lang": detected, "heard_en": out.get("heard_en", ""),
+            "say": say, "say_en": out.get("say_en", ""), "language": lang,
+            "checklist": checklist, "done": bool(out.get("done")), "audio": await tts(say, lang)}
+
+
+class SummaryIn(BaseModel):
+    task: str
+    name: str = "Arnav"
+    checklist: list = []
+    history: list = []
+
+
+@app.post("/api/summary")
+async def summary(p: SummaryIn):
+    transcript = "\n".join(f"{'Agent' if h['who'] == 'agent' else 'Them'}: {h['text']} ({h.get('en', '')})" for h in p.history)
+    return await chat_json(SMART_MODEL, [
+        {"role": "system", "content": """Summarise a phone call an assistant made for the user. Be factual; only use what was actually said. Return JSON only:
+{"headline": "<one-line outcome, max 12 words>",
+ "facts": [{"label": "<short label>", "value": "<value>"}],
+ "next_steps": ["<what the user should do next>"],
+ "unanswered": ["<checklist items not answered>"]}"""},
+        {"role": "user", "content": f"User: {p.name}\nTask: {p.task}\nChecklist: {json.dumps(p.checklist, ensure_ascii=False)}\n\nTranscript:\n{transcript}"},
+    ], max_tokens=1500, effort="off")
+
+
+@app.get("/api/fillers")
+async def fillers(lang: str = "hi-IN"):
+    lang = lang if lang in LANGS else "hi-IN"
+    if lang not in _filler_cache:
+        _filler_cache[lang] = list(await asyncio.gather(*(tts(t, lang) for t in FILLERS[lang])))
+    return {"audios": _filler_cache[lang]}
+
+
+@app.get("/api/languages")
+async def languages():
+    return [{"code": c, "name": n} for c, (n, _, _) in LANGS.items()]
+
+
+static = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=static), name="static")
+
+
+@app.get("/")
+async def index():
+    return FileResponse(static / "index.html", headers={"Cache-Control": "no-store"})
