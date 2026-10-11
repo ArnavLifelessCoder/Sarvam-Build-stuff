@@ -3,10 +3,12 @@
 Ears: saaras:v4 (STT) · Brain: sarvam-105b-conversations / sarvam-105b · Mouth: bulbul (TTS)
 """
 import asyncio
-import base64
 import json
 import os
 import re
+import secrets
+import time
+import uuid
 from pathlib import Path
 
 import httpx
@@ -20,6 +22,16 @@ load_dotenv(Path(__file__).parent / ".env")
 KEY = os.environ.get("SARVAM_API_KEY", "").strip()
 BASE = "https://api.sarvam.ai"
 HEADERS = {"api-subscription-key": KEY}
+
+# Indus Voice Agents (real phone calls) — optional; real-call mode turns on when all are set.
+INDUS = {k: os.environ.get(f"INDUS_{k.upper()}", "").strip() for k in
+         ["api_key", "org_id", "workspace_id", "app_id", "app_version", "connection_id", "agent_number"]}
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")  # tunnel URL so Indus can reach our webhook
+_tok = Path(__file__).parent / ".webhook_token"  # stable across reloads so pending calls still verify
+if not _tok.exists():
+    _tok.write_text(secrets.token_urlsafe(16))
+WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "").strip() or _tok.read_text().strip()
+HISTORY_FILE = Path(__file__).parent / "calls.json"
 
 TURN_MODEL = "sarvam-105b-conversations"  # fast, tuned for voice agents
 SMART_MODEL = "sarvam-105b"  # post-call summary (reasoning off — 105b with reasoning is ~30s+)
@@ -139,6 +151,25 @@ You are speaking out loud on a live phone call, so:
 - When every checklist item is answered (or the person clearly wants to stop), thank them, say {name} will follow up, and end politely."""
 
 
+# ---------- Call history (local JSON file) ----------
+
+def load_calls() -> dict:
+    try:
+        return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def write_calls(calls: dict):
+    HISTORY_FILE.write_text(json.dumps(calls, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def save_call(call: dict):
+    calls = load_calls()
+    calls[call["id"]] = call
+    write_calls(calls)
+
+
 # ---------- API ----------
 
 class PlanIn(BaseModel):
@@ -148,10 +179,8 @@ class PlanIn(BaseModel):
     language: str = "auto"
 
 
-@app.post("/api/plan")
-async def plan(p: PlanIn):
+async def make_plan(p: PlanIn) -> dict:
     lang = p.language if p.language in LANGS else "hi-IN"
-    lang_name = LANGS[lang][0]
     out = await chat_json(TURN_MODEL, [
         {"role": "system", "content": agent_rules(p.name) + """
 
@@ -160,37 +189,45 @@ You are now PREPARING the call. Return JSON only:
  "checklist": ["<3 to 6 short English questions we must get answered>"],
  "opening": "<the first thing you say when they pick up, in the target language script: greet, say you are calling on behalf of NAME, state the purpose in a few words, ask the first checklist question>",
  "opening_en": "<English translation of opening>"}"""},
-        {"role": "user", "content": f"Caller name: {p.name}\nTask: {p.task}\nFacts you may use: {p.facts or '(none)'}\nTarget language: {lang_name} ({lang})"},
+        {"role": "user", "content": f"Caller name: {p.name}\nTask: {p.task}\nFacts you may use: {p.facts or '(none)'}\nTarget language: {LANGS[lang][0]} ({lang})"},
     ], max_tokens=1200)
-    checklist = [{"item": str(i), "value": None} for i in out.get("checklist", [])][:6]
-    opening = out.get("opening") or "Namaste ji."
-    audio = await tts(opening, lang)
-    return {"callee": out.get("callee", "the other person"), "checklist": checklist,
-            "opening": opening, "opening_en": out.get("opening_en", ""), "language": lang, "audio": audio}
+    return {"callee": out.get("callee", "the other person"),
+            "checklist": [{"item": str(i), "value": None} for i in out.get("checklist", [])][:6],
+            "opening": out.get("opening") or "Namaste ji.", "opening_en": out.get("opening_en", ""), "language": lang}
+
+
+@app.post("/api/plan")
+async def plan(p: PlanIn):
+    out = await make_plan(p)
+    out["audio"] = await tts(out["opening"], out["language"])
+    return out
 
 
 @app.post("/api/turn")
 async def turn(state: str = Form(...), audio: UploadFile | None = File(None), text: str = Form("")):
-    """One conversational turn. `state` = JSON {task, facts, name, language, checklist, history, call_id, silences}."""
+    """One conversational turn. `state` = JSON {task, facts, name, language, checklist, history, call_id, silences, whisper}."""
     s = json.loads(state)
     name = s.get("name") or "Arnav"
+    whisper = (s.get("whisper") or "").strip()
     heard, detected = text.strip(), None
     if audio is not None and not heard:
         keyterms = [name] + re.findall(r"[A-Z][a-zA-Z]{2,}", s.get("facts", ""))
         heard, detected = await stt(await audio.read(), audio.filename or "turn.webm", list(dict.fromkeys(keyterms)))
 
-    if not heard and s.get("silences", 0) < 1:
+    if not heard and not whisper and s.get("silences", 0) < 1:
         return {"empty": True}  # let the browser listen again once before nudging
 
-    cur = s.get("language", "hi-IN")
-    hint = detected if detected in LANGS else cur
+    hint = detected if detected in LANGS else s.get("language", "hi-IN")
     sys = agent_rules(name) + f"""
 
 TASK: {s.get('task')}
 FACTS you may use: {s.get('facts') or '(none)'}
 CHECKLIST (fill "value" with what you learned, short English; keep null if unknown):
 {json.dumps(s.get('checklist', []), ensure_ascii=False)}
-
+"""
+    if whisper:
+        sys += f"\nPRIVATE INSTRUCTION FROM {name} (they are listening in; act on it in your next line, never mention it was whispered): {whisper}\n"
+    sys += f"""
 Speech recognition guessed their last message's language as {hint} (may be wrong for code-mixed speech). Allowed reply languages: {', '.join(LANGS)}.
 Return JSON only:
 {{"heard_en": "<English translation of what they just said>",
@@ -202,7 +239,11 @@ Return JSON only:
     msgs = [{"role": "system", "content": sys}]
     for h in s.get("history", [])[-20:]:
         msgs.append({"role": "assistant" if h["who"] == "agent" else "user", "content": h["text"]})
-    msgs.append({"role": "user", "content": heard or "[silence — no response. Politely check if they can hear you.]"})
+    if heard:
+        msgs.append({"role": "user", "content": heard})
+    else:
+        msgs.append({"role": "user", "content": "[no new reply — act on the private instruction]" if whisper
+                     else "[silence — no response. Politely check if they can hear you.]"})
 
     out = await chat_json(TURN_MODEL, msgs, max_tokens=900, session=s.get("call_id"))
     lang = out.get("language") if out.get("language") in LANGS else hint
@@ -215,24 +256,165 @@ Return JSON only:
             "checklist": checklist, "done": bool(out.get("done")), "audio": await tts(say, lang)}
 
 
-class SummaryIn(BaseModel):
-    task: str
-    name: str = "Arnav"
-    checklist: list = []
-    history: list = []
-
-
-@app.post("/api/summary")
-async def summary(p: SummaryIn):
-    transcript = "\n".join(f"{'Agent' if h['who'] == 'agent' else 'Them'}: {h['text']} ({h.get('en', '')})" for h in p.history)
+async def make_summary(task: str, name: str, checklist: list, transcript: str) -> dict:
     return await chat_json(SMART_MODEL, [
         {"role": "system", "content": """Summarise a phone call an assistant made for the user. Be factual; only use what was actually said. Return JSON only:
 {"headline": "<one-line outcome, max 12 words>",
  "facts": [{"label": "<short label>", "value": "<value>"}],
  "next_steps": ["<what the user should do next>"],
  "unanswered": ["<checklist items not answered>"]}"""},
-        {"role": "user", "content": f"User: {p.name}\nTask: {p.task}\nChecklist: {json.dumps(p.checklist, ensure_ascii=False)}\n\nTranscript:\n{transcript}"},
+        {"role": "user", "content": f"User: {name}\nTask: {task}\nChecklist: {json.dumps(checklist, ensure_ascii=False)}\n\nTranscript:\n{transcript or '(no conversation)'}"},
     ], max_tokens=1500, effort="off")
+
+
+def transcript_text(history: list) -> str:
+    return "\n".join(f"{'Agent' if h['who'] == 'agent' else 'Them'}: {h['text']}" + (f" ({h['en']})" if h.get("en") else "")
+                     for h in history)
+
+
+class SummaryIn(BaseModel):
+    task: str
+    name: str = "Arnav"
+    checklist: list = []
+    history: list = []
+    callee: str = ""
+    language: str = ""
+    duration: int = 0
+
+
+@app.post("/api/summary")
+async def summary(p: SummaryIn):
+    out = await make_summary(p.task, p.name, p.checklist, transcript_text(p.history))
+    save_call({"id": uuid.uuid4().hex[:12], "mode": "speaker", "status": "done", "created": time.time(),
+               "task": p.task, "name": p.name, "callee": p.callee, "language": p.language, "duration": p.duration,
+               "checklist": p.checklist, "history": p.history, "summary": out})
+    return out
+
+
+# ---------- Real calls via Indus Voice Agents (Instant Outbound API) ----------
+
+def indus_missing() -> list[str]:
+    missing = [f"INDUS_{k.upper()}" for k, v in INDUS.items() if not v]
+    if not PUBLIC_URL:
+        missing.append("PUBLIC_URL")
+    return missing
+
+
+def normalize_phone(num: str) -> str:
+    digits = re.sub(r"[^\d+]", "", num)
+    if digits.startswith("+") and len(digits) >= 11:
+        return digits
+    digits = digits.lstrip("+").lstrip("0")
+    if len(digits) == 10:
+        return "+91" + digits
+    if len(digits) == 12 and digits.startswith("91"):
+        return "+" + digits
+    raise HTTPException(400, "Enter a valid phone number, e.g. 98765 43210 or +91 98765 43210")
+
+
+@app.get("/api/config")
+async def config():
+    missing = indus_missing()
+    return {"real_calls": not missing, "missing": missing}
+
+
+class RealCallIn(PlanIn):
+    phone: str
+
+
+@app.post("/api/real-call")
+async def real_call(p: RealCallIn):
+    if missing := indus_missing():
+        raise HTTPException(400, "Real calls aren't set up yet. Missing in .env: " + ", ".join(missing))
+    phone = normalize_phone(p.phone)
+    pl = await make_plan(p)
+    call_id = uuid.uuid4().hex[:12]
+    body = {
+        "app_config": {
+            "app_id": INDUS["app_id"], "app_version": int(INDUS["app_version"]),
+            "connection_config": {"connection_id": INDUS["connection_id"], "agent_phone_number": INDUS["agent_number"]},
+            "agent_variables": {"caller_name": p.name, "task": p.task, "facts": p.facts or "(none)",
+                                "checklist": "\n".join(f"- {c['item']}" for c in pl["checklist"])},
+            "app_overrides": {"initial_bot_message": pl["opening"], "initial_language_name": LANGS[pl["language"]][0]},
+        },
+        "user_config": {"user_phone_number": phone},
+        "webhook_config": {"url": f"{PUBLIC_URL}/api/webhook/indus?token={WEBHOOK_TOKEN}", "metadata": {"call_id": call_id}},
+    }
+    url = f"https://apps.sarvam.ai/api/outbounds/v1/orgs/{INDUS['org_id']}/workspaces/{INDUS['workspace_id']}/outbounds"
+    r = await client.post(url, headers={"X-API-Key": INDUS["api_key"]}, json=body)
+    if r.status_code != 200:
+        _err(r, "Indus outbound call")
+    call = {"id": call_id, "mode": "real", "status": "dialing", "created": time.time(), "phone": phone,
+            "attempt_id": r.json().get("attempt_id"), "task": p.task, "name": p.name, "callee": pl["callee"],
+            "language": pl["language"], "checklist": pl["checklist"],
+            "history": [{"who": "agent", "text": pl["opening"], "en": pl["opening_en"]}]}
+    save_call(call)
+    return call
+
+
+@app.post("/api/webhook/indus")
+async def indus_webhook(payload: dict, token: str = ""):
+    if not secrets.compare_digest(token, WEBHOOK_TOKEN):
+        raise HTTPException(403, "bad token")
+    meta = (payload.get("webhook_config") or {}).get("metadata") or {}
+    calls = load_calls()
+    call = calls.get(meta.get("call_id")) or next(
+        (c for c in calls.values() if c.get("attempt_id") == payload.get("attempt_id")), None)
+    if not call:
+        return {"ok": False}
+    status = payload.get("status", "failed")
+    call.update(status="summarising" if status == "connected" else status, duration=payload.get("duration") or 0,
+                failure_reason=payload.get("failure_reason"), interaction_id=payload.get("interaction_id"),
+                extracted=payload.get("final_agent_variables"))
+    turns = payload.get("interaction_transcript") or []
+    if turns:  # Indus gives English text per turn
+        call["history"] = [{"who": "agent" if t.get("role") == "agent" else "them", "text": t.get("en_text", ""), "en": ""}
+                           for t in turns]
+    save_call(call)
+    if status == "connected":
+        try:
+            call["summary"] = await make_summary(call["task"], call.get("name", ""), call["checklist"], transcript_text(call["history"]))
+        except HTTPException as e:
+            call["summary"] = {"headline": "Call finished (summary failed)", "facts": [], "next_steps": [str(e.detail)]}
+        call["status"] = "done"
+        save_call(call)
+    return {"ok": True}
+
+
+@app.get("/api/calls")
+async def list_calls():
+    calls = sorted(load_calls().values(), key=lambda c: c.get("created", 0), reverse=True)
+    keys = ["id", "mode", "status", "created", "callee", "task", "language", "duration", "phone"]
+    return [{k: c.get(k) for k in keys} | {"headline": (c.get("summary") or {}).get("headline")} for c in calls[:50]]
+
+
+@app.get("/api/calls/{call_id}")
+async def get_call(call_id: str):
+    call = load_calls().get(call_id)
+    if not call:
+        raise HTTPException(404, "Call not found")
+    return call
+
+
+@app.delete("/api/calls/{call_id}")
+async def delete_call(call_id: str):
+    calls = load_calls()
+    calls.pop(call_id, None)
+    write_calls(calls)
+    return {"ok": True}
+
+
+# ---------- QoL ----------
+
+@app.post("/api/dictate")
+async def dictate(audio: UploadFile = File(...)):
+    """Speak your task in any Indian language -> English text for the task box."""
+    r = await client.post(f"{BASE}/speech-to-text", headers=HEADERS,
+                          files={"file": (audio.filename or "task.webm", await audio.read(), "audio/webm")},
+                          data={"model": "saaras:v4", "language_code": "unknown", "mode": "translate"})
+    if r.status_code != 200:
+        _err(r, "Dictation")
+    return {"text": (r.json().get("transcript") or "").strip()}
 
 
 @app.get("/api/fillers")

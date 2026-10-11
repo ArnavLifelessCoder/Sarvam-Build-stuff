@@ -1,3 +1,5 @@
 .env
 __pycache__/
 .venv/
+calls.json
+.webhook_token
