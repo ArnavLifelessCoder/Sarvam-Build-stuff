@@ -44,6 +44,13 @@ Open http://localhost:8000 (landing) or http://localhost:8000/app in Chrome or E
 
 For real calls, follow [INDUS_SETUP.md](INDUS_SETUP.md) (one Indus agent, a phone number, a tunnel for the webhook).
 
+## Deploy (Vercel)
+1. Import the repo on vercel.com, set **Root Directory** to `ai-caller` (framework preset: Other).
+2. Add env var `SARVAM_API_KEY` (and `WEBHOOK_TOKEN` + the `INDUS_*` vars for real calls; `PUBLIC_URL` = your Vercel URL, so no tunnel is needed).
+3. Deploy. HTTPS means the mic works on phones too.
+
+Notes: history lives in `/tmp` on Vercel, so it resets on cold starts and isn't shared across instances. For reliable real-call tracking in production, move `calls.json` to Vercel KV or a database. Anyone with the URL can spend your Sarvam credits, so keep the link private.
+
 ## API
 | Route | Does |
 |---|---|

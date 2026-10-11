@@ -27,11 +27,13 @@ HEADERS = {"api-subscription-key": KEY}
 INDUS = {k: os.environ.get(f"INDUS_{k.upper()}", "").strip() for k in
          ["api_key", "org_id", "workspace_id", "app_id", "app_version", "connection_id", "agent_number"]}
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")  # tunnel URL so Indus can reach our webhook
-_tok = Path(__file__).parent / ".webhook_token"  # stable across reloads so pending calls still verify
+# Vercel's filesystem is read-only except /tmp (ephemeral there — history resets on cold starts)
+DATA_DIR = Path("/tmp") if os.environ.get("VERCEL") else Path(__file__).parent
+_tok = DATA_DIR / ".webhook_token"  # stable across reloads so pending calls still verify
 if not _tok.exists():
     _tok.write_text(secrets.token_urlsafe(16))
 WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "").strip() or _tok.read_text().strip()
-HISTORY_FILE = Path(__file__).parent / "calls.json"
+HISTORY_FILE = DATA_DIR / "calls.json"
 
 TURN_MODEL = "sarvam-105b-conversations"  # fast, tuned for voice agents
 SMART_MODEL = "sarvam-105b"  # post-call summary (reasoning off — 105b with reasoning is ~30s+)
