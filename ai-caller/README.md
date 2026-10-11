@@ -14,7 +14,7 @@ Built on Sarvam: the same `sarvam-105b` family that powers **Indus by Sarvam**, 
 
 ## Flow
 1. **Describe**: type the task or say it in any Indian language (translated to English). Add facts it may share.
-2. **Review**: it drafts an opening line and a checklist. Edit, remove or add questions before dialing.
+2. **Review**: it drafts an opening line and a checklist. Edit, remove or add questions before dialing. If you ask for money without saying how much, it asks you first instead of asking the other person. Request calls ("send me ₹4,000 by today") state your ask; enquiry calls ask questions.
 3. **Call**:
    - *Speakerphone*: your phone on speaker next to the laptop. The loop is listen, transcribe, decide, speak, with fillers covering the thinking time.
    - *Real call*: Indus dials the number from your Sarvam line. The transcript comes back by webhook.
