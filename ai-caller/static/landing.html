@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mere Liye Call Kar</title>
+<meta name="description" content="An AI that makes everyday phone calls for you in Indian languages, built on Sarvam and Indus.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/base.css">
+<script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
+<style>
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+  nav.top { display: flex; align-items: center; gap: 22px; padding: 22px 0; }
+  .wordmark { font: 24px/1 var(--serif); text-decoration: none; }
+  nav.top .links { margin-left: auto; display: flex; gap: 22px; align-items: center; font-size: 14px; }
+  nav.top .links a:not(.btn) { text-decoration: none; color: var(--ink-2); }
+  nav.top .links a:not(.btn):hover { color: var(--ink); }
+
+  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; padding: 64px 0 80px; border-bottom: 1px solid var(--line); }
+  h1 { font: 76px/0.98 var(--serif); letter-spacing: -0.025em; margin: 18px 0 22px; }
+  h1 em { font-style: italic; color: var(--accent); }
+  .lede { font-size: 18px; line-height: 1.6; color: var(--ink-2); max-width: 30em; margin: 0; }
+  .cta { display: flex; gap: 10px; margin-top: 30px; flex-wrap: wrap; }
+  .cta .btn { padding: 12px 20px; font-size: 15px; }
+
+  /* product preview */
+  .preview { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 0 var(--line), 0 24px 60px -30px #0003; }
+  .pv-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .pv-head b { font: 20px/1 var(--serif); font-weight: 400; }
+  .live { display: inline-flex; align-items: center; gap: 7px; font: 11px var(--mono); color: var(--accent); }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: blink 1.6s infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .pv-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .line { padding-left: 12px; border-left: 2px solid var(--line-strong); max-width: 92%; }
+  .line.agent { border-color: var(--accent); align-self: flex-end; }
+  .line .lab { font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  .line.agent .lab { color: var(--accent); }
+  .line .tx { font-size: 15px; line-height: 1.5; }
+  .line .en { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .pv-check { border-top: 1px solid var(--line); padding: 14px 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; font-size: 13px; }
+  .pv-check div { display: flex; gap: 8px; align-items: baseline; }
+  .pv-check .k { color: var(--muted); }
+  .pv-check .v { font-weight: 500; color: var(--accent); margin-left: auto; }
+  .tick { width: 13px; height: 13px; border-radius: 3px; background: var(--accent); flex: none; display: grid; place-items: center; transform: translateY(2px); }
+  .tick .icon { width: 10px; height: 10px; color: var(--accent-ink); stroke-width: 2.6; }
+  .tick.no { background: transparent; border: 1.5px solid var(--line-strong); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
+  .stat { padding: 28px 0; }
+  .stat + .stat { border-left: 1px solid var(--line); padding-left: 28px; }
+  .stat .n { font: 44px/1 var(--serif); }
+  .stat .d { font-size: 13.5px; color: var(--muted); margin-top: 8px; max-width: 16em; }
+
+  section.block { padding: 88px 0; border-bottom: 1px solid var(--line); }
+  .block-head { display: grid; grid-template-columns: 1fr 1.4fr; gap: 56px; margin-bottom: 48px; }
+  h2 { font: 48px/1.04 var(--serif); letter-spacing: -0.02em; margin: 12px 0 0; }
+  .block-head p { font-size: 17px; color: var(--ink-2); margin: 0; align-self: end; line-height: 1.6; }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-top: 1px solid var(--ink); }
+  .step { padding: 22px 28px 8px 0; }
+  .step + .step { padding-left: 28px; border-left: 1px solid var(--line); }
+  .step .num { font: 13px var(--mono); color: var(--muted); }
+  .step h3 { font: 26px/1.15 var(--serif); font-weight: 400; margin: 14px 0 10px; }
+  .step p { color: var(--ink-2); margin: 0; font-size: 15px; }
+
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .mode { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 28px; }
+  .mode .icon { width: 22px; height: 22px; color: var(--accent); }
+  .mode h3 { font: 28px/1.1 var(--serif); font-weight: 400; margin: 18px 0 10px; }
+  .mode p { color: var(--ink-2); margin: 0 0 18px; }
+  .mode dl { display: grid; grid-template-columns: 90px 1fr; gap: 8px 14px; margin: 0; padding-top: 18px; border-top: 1px solid var(--line); font-size: 14px; }
+  .mode dt { font: 11px/1.7 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .mode dd { margin: 0; }
+
+  .rules { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 56px; }
+  .rule { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 20px 0; border-top: 1px solid var(--line); }
+  .rule .icon { width: 18px; height: 18px; color: var(--accent); margin-top: 3px; }
+  .rule b { display: block; font-weight: 500; margin-bottom: 4px; }
+  .rule span { color: var(--ink-2); font-size: 14.5px; }
+
+  .calls { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .callx { padding: 22px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .callx .lang { font: 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .callx h4 { font: 22px/1.2 var(--serif); font-weight: 400; margin: 10px 0 6px; }
+  .callx p { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+  .langs { display: flex; flex-wrap: wrap; gap: 10px 26px; font: 30px/1.3 var(--serif); color: var(--ink-2); }
+  .langs span:nth-child(odd) { color: var(--ink); }
+
+  table.stack { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .stack td { padding: 16px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  .stack td:first-child { width: 34%; color: var(--ink-2); }
+  .stack code { font: 14px var(--mono); color: var(--accent); }
+  .stack small { display: block; color: var(--muted); font-size: 13px; margin-top: 3px; }
+
+  .final { text-align: center; padding: 110px 0; }
+  .final h2 { font-size: 64px; margin: 0 auto 26px; max-width: 12em; }
+  footer { display: flex; justify-content: space-between; gap: 20px; padding: 26px 0 40px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); flex-wrap: wrap; }
+
+  @media (max-width: 900px) {
+    .hero, .block-head, .modes, .rules { grid-template-columns: 1fr; gap: 32px; }
+    h1 { font-size: 52px; }
+    h2, .final h2 { font-size: 38px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stat:nth-child(3) { border-left: 0; padding-left: 0; }
+    .stat:nth-child(n+3) { border-top: 1px solid var(--line); }
+    .steps, .calls { grid-template-columns: 1fr; }
+    .step + .step { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
+    nav.top .links a:not(.btn) { display: none; }
+    section.block { padding: 64px 0; }
+    .pv-check { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M21 16.4v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 1.1 3.7 2 2 0 0 1 3.1 1.5h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L7.1 9.3a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z"/></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="11.5" rx="1.5"/><path d="M1.5 19.5h21"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.5l8 3v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="1.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5v-6a1.5 1.5 0 0 1 3 0V11M14 6.5a1.5 1.5 0 0 1 3 0V13a7 7 0 0 1-7 7h-.5a6 6 0 0 1-4.6-2.2L2.7 15a1.6 1.6 0 0 1 2.4-2.1L8 15.5"/></symbol>
+</svg>
+
+<div class="wrap">
+  <nav class="top">
+    <a class="wordmark" href="/">Mere Liye Call Kar</a>
+    <div class="links">
+      <a href="#how">How it works</a>
+      <a href="#modes">Two ways to call</a>
+      <a href="#stack">Built on Sarvam</a>
+      <a class="btn btn-primary" href="/app">Open the app</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div>
+      <div class="eyebrow">AI phone calls, for India</div>
+      <h1>Hand off the <em>phone call.</em></h1>
+      <p class="lede">Tell it what you need. It calls the PG owner, the clinic, the gas agency — in Kannada, Tamil, Hindi or whatever they speak — gets the answers, and hands you a summary.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="/app">Make a call <svg class="icon"><use href="#i-right"/></svg></a>
+        <a class="btn btn-line" href="#how">See how it works</a>
+      </div>
+    </div>
+    <div class="preview" aria-label="Example call">
+      <div class="pv-head"><b>PG owner, Koramangala</b><span class="live"><i></i>01:12 · Kannada</span></div>
+      <div class="pv-body">
+        <div class="line agent"><div class="lab">Your AI</div><div class="tx">ನಮಸ್ಕಾರ ಸರ್, ನಾನು ಅರ್ನವ್ ಅವರ ಅಸಿಸ್ಟೆಂಟ್. ಮುಂದಿನ ತಿಂಗಳಿಂದ ಸಿಂಗಲ್ ರೂಮ್ ಸಿಗುತ್ತಾ?</div><div class="en">Hello sir, I'm Arnav's assistant. Is a single room available from next month?</div></div>
+        <div class="line"><div class="lab">PG owner</div><div class="tx">ಹೌದು ಸರ್, ರೂಮ್ ಇದೆ. ಬಾಡಿಗೆ 11,500, ಊಟ ಸೇರಿ.</div><div class="en">Yes sir, there's a room. Rent is 11,500, food included.</div></div>
+        <div class="line agent"><div class="lab">Your AI</div><div class="tx">ಸರಿ ಸರ್, 11,500 ಊಟ ಸೇರಿ ಅಲ್ವಾ? ಡೆಪಾಸಿಟ್ ಎಷ್ಟು?</div><div class="en">Okay — 11,500 with food, right? How much is the deposit?</div></div>
+      </div>
+      <div class="pv-check">
+        <div><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span class="k">Room free</span><span class="v">Yes</span></div>
+        <div><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span class="k">Rent</span><span class="v">11,500</span></div>
+        <div><span class="tick"><svg class="icon"><use href="#i-check"/></svg></span><span class="k">Food</span><span class="v">Included</span></div>
+        <div><span class="tick no"></span><span class="k">Deposit</span></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="n">22</div><div class="d">Indian languages it understands, code-mixed speech included</div></div>
+    <div class="stat"><div class="n">11</div><div class="d">languages it speaks back in, with natural Indian voices</div></div>
+    <div class="stat"><div class="n">~3s</div><div class="d">per reply, with natural fillers so the pause doesn't feel like a bot</div></div>
+    <div class="stat"><div class="n">0</div><div class="d">payments, OTPs or details it will share without your say-so</div></div>
+  </div>
+
+  <section class="block" id="how">
+    <div class="block-head">
+      <div><div class="eyebrow">How it works</div><h2>Three steps, and you're off the phone.</h2></div>
+      <p>The calls nobody wants to make — chasing the tailor, booking a cylinder, checking a clinic slot — usually take ten minutes and a language you don't quite speak. This takes the call for you.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="num">01</div><h3>Say what you need</h3><p>Type it, or just say it in any Indian language. Add anything it's allowed to share — your budget, a visit time, a consumer number.</p></div>
+      <div class="step"><div class="num">02</div><h3>Check the plan</h3><p>It writes the questions it needs answered and its opening line. Edit, remove or add anything before it dials.</p></div>
+      <div class="step"><div class="num">03</div><h3>It calls, you read</h3><p>It holds the conversation in their language, ticks off each answer, and gives you a summary you can forward on WhatsApp.</p></div>
+    </div>
+  </section>
+
+  <section class="block" id="modes">
+    <div class="block-head">
+      <div><div class="eyebrow">Two ways to call</div><h2>Use your phone, or let Indus dial.</h2></div>
+      <p>Speakerphone mode works the moment you add a Sarvam API key. Real calls run on Indus Voice Agents, Sarvam's own telephony stack, so nothing touches your phone at all.</p>
+    </div>
+    <div class="modes">
+      <div class="mode">
+        <svg class="icon"><use href="#i-laptop"/></svg>
+        <h3>Speakerphone</h3>
+        <p>Dial on your phone, put it on speaker next to your laptop. The AI listens, thinks and talks through the laptop — and you can step in any time.</p>
+        <dl><dt>Setup</dt><dd>Sarvam API key</dd><dt>You can</dt><dd>Take over, whisper instructions, tune how long it waits</dd><dt>Best for</dt><dd>Calls you want to sit in on</dd></dl>
+      </div>
+      <div class="mode">
+        <svg class="icon"><use href="#i-phone"/></svg>
+        <h3>Real call via Indus</h3>
+        <p>Indus rings the number from your Sarvam line and runs the whole call. When it hangs up, the transcript comes back and the summary is waiting.</p>
+        <dl><dt>Setup</dt><dd>One Indus agent and a phone number</dd><dt>You can</dt><dd>Fire it off and get on with your day</dd><dt>Best for</dt><dd>Quick enquiries and bookings</dd></dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div><div class="eyebrow">Guardrails</div><h2>Helpful, not overeager.</h2></div>
+      <p>It's calling on your behalf, so it behaves like a careful assistant would — polite, honest about who it is, and unwilling to commit you to anything.</p>
+    </div>
+    <div class="rules">
+      <div class="rule"><svg class="icon"><use href="#i-lock"/></svg><div><b>Never pays or shares OTPs</b><span>Asked for an advance? It says it'll confirm with you first.</span></div></div>
+      <div class="rule"><svg class="icon"><use href="#i-shield"/></svg><div><b>Only shares what you allow</b><span>Your address, numbers and plans stay out unless you wrote them in.</span></div></div>
+      <div class="rule"><svg class="icon"><use href="#i-user"/></svg><div><b>Honest about who it is</b><span>It introduces itself as your assistant and says it's an AI if asked.</span></div></div>
+      <div class="rule"><svg class="icon"><use href="#i-hand"/></svg><div><b>You stay in charge</b><span>Take over mid-call, or whisper an instruction it acts on without them hearing.</span></div></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div><div class="eyebrow">Everyday calls</div><h2>The small calls that eat your day.</h2></div>
+      <p>Every one of these ships as a one-click example in the app.</p>
+    </div>
+    <div class="calls">
+      <div class="callx"><div class="lang">Kannada</div><h4>PG enquiry</h4><p>Room free? Rent, food, deposit, and a visit time.</p></div>
+      <div class="callx"><div class="lang">Hindi</div><h4>Gas cylinder refill</h4><p>Book the refill, get the delivery date and amount.</p></div>
+      <div class="callx"><div class="lang">Marathi</div><h4>Clinic appointment</h4><p>A slot this evening, the fee, which reports to bring.</p></div>
+      <div class="callx"><div class="lang">Tamil</div><h4>Tailor pickup</h4><p>Are the clothes ready, how much, what time.</p></div>
+      <div class="callx"><div class="lang">Telugu</div><h4>Plumber visit</h4><p>Can he come today, when, and the visit charge.</p></div>
+      <div class="callx"><div class="lang">Any</div><h4>Yours</h4><p>Describe the call in a sentence. It works out the questions.</p></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div><div class="eyebrow">Languages</div><h2>It answers in theirs.</h2></div>
+      <p>It follows the other person — if they switch from Kannada to Hindi mid-sentence, so does it.</p>
+    </div>
+    <div class="langs"><span>हिन्दी</span><span>ಕನ್ನಡ</span><span>தமிழ்</span><span>తెలుగు</span><span>मराठी</span><span>বাংলা</span><span>ગુજરાતી</span><span>മലയാളം</span><span>ਪੰਜਾਬੀ</span><span>ଓଡ଼ିଆ</span><span>English</span></div>
+  </section>
+
+  <section class="block" id="stack">
+    <div class="block-head">
+      <div><div class="eyebrow">Built on Sarvam</div><h2>India's own models, end to end.</h2></div>
+      <p>The brain is the same Sarvam 105B family that powers Indus by Sarvam.</p>
+    </div>
+    <table class="stack">
+      <tr><td>Hearing</td><td><code>saaras:v4</code><small>Speech to text with auto language detection and code-mix</small></td></tr>
+      <tr><td>Thinking, live</td><td><code>sarvam-105b-conversations</code><small>Plans the call and decides each reply in about a second</small></td></tr>
+      <tr><td>Summarising</td><td><code>sarvam-105b</code><small>Turns the transcript into facts and next steps</small></td></tr>
+      <tr><td>Speaking</td><td><code>bulbul:v4-flash</code><small>Conversational Indian voices</small></td></tr>
+      <tr><td>Real calls</td><td><code>Indus Voice Agents</code><small>Instant Outbound API, with the transcript returned by webhook</small></td></tr>
+    </table>
+  </section>
+
+  <section class="final">
+    <div class="eyebrow">Mere liye call kar</div>
+    <h2>Next time, let it make the call.</h2>
+    <a class="btn btn-primary" href="/app" style="padding:13px 22px;font-size:15px">Open the app <svg class="icon"><use href="#i-right"/></svg></a>
+  </section>
+
+  <footer><span>Mere Liye Call Kar</span><span>Built with Sarvam AI and Indus</span></footer>
+</div>
+</body>
+</html>

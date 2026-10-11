@@ -1,35 +1,36 @@
-# 📞 Mere Liye Call Kar — AI that makes your calls
+# Mere Liye Call Kar
 
-Tell it what you need ("ask the PG owner if a single room is free under ₹12k, food included?"), put your phone on speaker next to the laptop, and the AI holds the conversation **in Kannada, Hindi, Tamil, Marathi… whatever the other person speaks** — then hands you a summary.
+An AI that makes everyday phone calls for you in Indian languages. Tell it what you need, check the plan, and it holds the conversation in whatever language the other person speaks, then hands you a summary.
 
-Built on Sarvam AI — the same `sarvam-105b` model family that powers **Indus by Sarvam**.
+Built on Sarvam: the same `sarvam-105b` family that powers **Indus by Sarvam**, plus Indus Voice Agents for real calls.
 
-| Job | Sarvam model |
+| Job | Model |
 |---|---|
-| Ears (speech → text, code-mix, auto language) | `saaras:v4` |
-| Brain (live turns + call planning) | `sarvam-105b-conversations` |
-| Post-call summary | `sarvam-105b` |
-| Voice (natural Indian voices) | `bulbul:v4-flash` / `bulbul:v3` |
+| Hearing (speech to text, code-mix, auto language) | `saaras:v4` |
+| Planning + live replies | `sarvam-105b-conversations` |
+| Post-call summary | `sarvam-105b` (reasoning off) |
+| Voice | `bulbul:v4-flash` / `bulbul:v3` |
+| Real calls | Indus Voice Agents, Instant Outbound API |
 
-## Two ways to call
-| | 💻 Speakerphone | ☎️ Real call · Indus |
-|---|---|---|
-| How | Your phone on speaker, AI runs on the laptop | **Indus Voice Agents** dials the number itself (Instant Outbound API) |
-| Setup | Just `SARVAM_API_KEY` | One-time agent + phone number in Indus — see [INDUS_SETUP.md](INDUS_SETUP.md) |
-| Result | Live transcript + summary | Transcript via webhook → summary |
+## Flow
+1. **Describe**: type the task or say it in any Indian language (translated to English). Add facts it may share.
+2. **Review**: it drafts an opening line and a checklist. Edit, remove or add questions before dialing.
+3. **Call**:
+   - *Speakerphone*: your phone on speaker next to the laptop. The loop is listen, transcribe, decide, speak, with fillers covering the thinking time.
+   - *Real call*: Indus dials the number from your Sarvam line. The transcript comes back by webhook.
+4. **Summary**: facts, next steps and anything unanswered. Share to WhatsApp, copy, download the transcript, or call again. Every call is kept in history.
 
-## What it does
-- Turns your task into a **checklist** and an opening line
-- Talks turn-by-turn: listens (voice activity detection) → transcribes → decides → speaks
-- **Follows language switches** (Kannada → Hindi mid-call)
-- Plays natural fillers ("haan ji…") to hide thinking time
-- Confirms numbers back, **never agrees to pay / share OTPs**, identifies itself as your assistant
-- **Take over** button, live bilingual transcript, auto summary with next steps
-- 🤫 **Whisper to your AI** mid-call ("tell him I can pay max 12,500") — it acts on it, they never hear it
-- 🎤 **Speak your task** in any Indian language — auto-translated to English
-- 📜 **Call history** with summaries, 🟢 **share to WhatsApp**, copy, call again
-- ⌨️ Shortcuts: `Space` take over / resume, `Esc` end call · remembers your name, language, number
-- Type-only test mode (no mic / no one to call)
+## Features
+- Follows language switches mid-call (Kannada to Hindi)
+- Repeats numbers back to confirm, never agrees to pay or shares OTPs, introduces itself as your assistant
+- **Take over / hand back** at any point. **Whisper** an instruction it acts on without the other person hearing it
+- **Patience slider**: how long it waits after they stop talking (0.6 to 2.4s)
+- Live mic level, checklist progress, bilingual transcript
+- Retries Sarvam calls on 429/5xx (the Indus dial is never retried, so a call is never placed twice)
+- Remembers your name, language, number, theme and draft; recent numbers autocomplete
+- Shortcuts: `Ctrl+Enter` prepare / start, `Space` take over, `Esc` end
+- Type-only test mode when there's no mic or no one to call
+- Light and dark themes; landing page at `/`, app at `/app`
 
 ## Run
 ```bash
@@ -39,14 +40,31 @@ python -m venv .venv
 cp .env.example .env                             # add SARVAM_API_KEY
 .venv/Scripts/python -m uvicorn app:app --port 8000
 ```
-Open http://localhost:8000 in Chrome/Edge and allow the microphone.
+Open http://localhost:8000 (landing) or http://localhost:8000/app in Chrome or Edge, and allow the microphone.
+
+For real calls, follow [INDUS_SETUP.md](INDUS_SETUP.md) (one Indus agent, a phone number, a tunnel for the webhook).
+
+## API
+| Route | Does |
+|---|---|
+| `POST /api/plan` | Task to callee, checklist and opening line |
+| `POST /api/tts` | Text to base64 WAV (opening line is prefetched during review) |
+| `POST /api/turn` | One speakerphone turn: audio or text (+ optional whisper) to reply, updated checklist and audio |
+| `POST /api/summary` | Transcript to summary; saves the call to history |
+| `POST /api/real-call` | Reviewed plan + phone number to an Indus outbound call |
+| `POST /api/webhook/indus` | Indus end-of-call webhook (token-checked) to summary |
+| `GET/DELETE /api/calls[/{id}]` | Call history (stored in `calls.json`) |
+| `POST /api/dictate` | Spoken task in any language to English text |
+| `GET /api/fillers`, `/api/languages`, `/api/config` | Filler clips, languages, real-call readiness |
 
 ## Files
-- `app.py` — FastAPI backend: `/api/plan`, `/api/turn`, `/api/summary`, `/api/real-call`, `/api/webhook/indus`, `/api/calls`, `/api/dictate`, `/api/fillers`
-- `INDUS_SETUP.md` — one-time Indus agent + number setup for real calls
-- `static/index.html` — setup → live call → summary UI
-- `smoke_test.py` — checks STT, TTS and chat with your key
-- `PLAN.md` — design notes
+- `app.py`: FastAPI backend
+- `static/landing.html`: landing page
+- `static/app.html`: the app (setup, review, call, summary)
+- `static/base.css`: shared design tokens (paper and ink, one green accent; IBM Plex + Instrument Serif)
+- `INDUS_SETUP.md`: real-call setup
+- `smoke_test.py`: checks STT, TTS and chat with your key
+- `PLAN.md`: original design notes
 
 ## Next
-Barge-in with streaming STT, "call 5 clinics and find a slot" batch mode.
+Barge-in with streaming STT, batch mode ("call 5 clinics, find a slot today").

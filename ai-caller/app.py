@@ -72,6 +72,18 @@ _filler_cache: dict[str, list[str]] = {}
 
 # ---------- Sarvam helpers ----------
 
+async def sarvam_post(url: str, **kw) -> httpx.Response:
+    """POST with up to 2 retries on 429 / 5xx / network errors (backoff 0.6s, 1.2s)."""
+    for attempt in range(3):
+        try:
+            r = await client.post(url, **kw)
+            if r.status_code not in (429, 500, 502, 503, 504) or attempt == 2:
+                return r
+        except httpx.TransportError:
+            if attempt == 2:
+                raise HTTPException(502, "Couldn't reach Sarvam — check your internet connection")
+        await asyncio.sleep(0.6 * (attempt + 1))
+
 def _err(r: httpx.Response, what: str):
     try:
         msg = r.json().get("error", {}).get("message") or r.text
@@ -83,7 +95,7 @@ def _err(r: httpx.Response, what: str):
 async def tts(text: str, lang: str) -> str:
     """Returns base64 WAV."""
     _, model, speaker = LANGS.get(lang, LANGS["hi-IN"])
-    r = await client.post(f"{BASE}/text-to-speech", headers=HEADERS, json={
+    r = await sarvam_post(f"{BASE}/text-to-speech", headers=HEADERS, json={
         "model": model, "text": text[:2400], "language_code": lang if lang in LANGS else "hi-IN",
         "speaker": speaker, "speech_sample_rate": 24000, "pace": 1.05,
     })
@@ -96,7 +108,7 @@ async def stt(audio: bytes, filename: str, keyterms: list[str]) -> tuple[str, st
     data = {"model": "saaras:v4", "language_code": "unknown"}
     if keyterms:
         data["keyterms"] = json.dumps(keyterms[:50])
-    r = await client.post(f"{BASE}/speech-to-text", headers=HEADERS,
+    r = await sarvam_post(f"{BASE}/speech-to-text", headers=HEADERS,
                           files={"file": (filename, audio, "audio/webm")}, data=data)
     if r.status_code != 200:
         _err(r, "Speech-to-text")
@@ -122,7 +134,7 @@ async def chat_json(model: str, messages: list[dict], max_tokens: int, session: 
     elif effort:
         body["reasoning_effort"] = effort
     for attempt in range(2):
-        r = await client.post(f"{BASE}/v1/chat/completions", headers=headers, json=body)
+        r = await sarvam_post(f"{BASE}/v1/chat/completions", headers=headers, json=body)
         if r.status_code != 200:
             _err(r, "Chat")
         content = r.json()["choices"][0]["message"].get("content")
@@ -198,9 +210,17 @@ You are now PREPARING the call. Return JSON only:
 
 @app.post("/api/plan")
 async def plan(p: PlanIn):
-    out = await make_plan(p)
-    out["audio"] = await tts(out["opening"], out["language"])
-    return out
+    return await make_plan(p)
+
+
+class TtsIn(BaseModel):
+    text: str
+    language: str = "hi-IN"
+
+
+@app.post("/api/tts")
+async def speak(p: TtsIn):
+    return {"audio": await tts(p.text, p.language)}
 
 
 @app.post("/api/turn")
@@ -274,6 +294,7 @@ def transcript_text(history: list) -> str:
 
 class SummaryIn(BaseModel):
     task: str
+    facts: str = ""
     name: str = "Arnav"
     checklist: list = []
     history: list = []
@@ -286,7 +307,7 @@ class SummaryIn(BaseModel):
 async def summary(p: SummaryIn):
     out = await make_summary(p.task, p.name, p.checklist, transcript_text(p.history))
     save_call({"id": uuid.uuid4().hex[:12], "mode": "speaker", "status": "done", "created": time.time(),
-               "task": p.task, "name": p.name, "callee": p.callee, "language": p.language, "duration": p.duration,
+               "task": p.task, "facts": p.facts, "name": p.name, "callee": p.callee, "language": p.language, "duration": p.duration,
                "checklist": p.checklist, "history": p.history, "summary": out})
     return out
 
@@ -320,6 +341,7 @@ async def config():
 
 class RealCallIn(PlanIn):
     phone: str
+    plan: dict | None = None  # reviewed plan from /api/plan (checklist / opening may be edited)
 
 
 @app.post("/api/real-call")
@@ -327,7 +349,9 @@ async def real_call(p: RealCallIn):
     if missing := indus_missing():
         raise HTTPException(400, "Real calls aren't set up yet. Missing in .env: " + ", ".join(missing))
     phone = normalize_phone(p.phone)
-    pl = await make_plan(p)
+    pl = p.plan if p.plan and p.plan.get("opening") and p.plan.get("checklist") else await make_plan(p)
+    pl.setdefault("language", p.language if p.language in LANGS else "hi-IN")
+    pl.setdefault("callee", "the other person")
     call_id = uuid.uuid4().hex[:12]
     body = {
         "app_config": {
@@ -345,9 +369,9 @@ async def real_call(p: RealCallIn):
     if r.status_code != 200:
         _err(r, "Indus outbound call")
     call = {"id": call_id, "mode": "real", "status": "dialing", "created": time.time(), "phone": phone,
-            "attempt_id": r.json().get("attempt_id"), "task": p.task, "name": p.name, "callee": pl["callee"],
+            "attempt_id": r.json().get("attempt_id"), "task": p.task, "facts": p.facts, "name": p.name, "callee": pl["callee"],
             "language": pl["language"], "checklist": pl["checklist"],
-            "history": [{"who": "agent", "text": pl["opening"], "en": pl["opening_en"]}]}
+            "history": [{"who": "agent", "text": pl["opening"], "en": pl.get("opening_en", "")}]}
     save_call(call)
     return call
 
@@ -409,7 +433,7 @@ async def delete_call(call_id: str):
 @app.post("/api/dictate")
 async def dictate(audio: UploadFile = File(...)):
     """Speak your task in any Indian language -> English text for the task box."""
-    r = await client.post(f"{BASE}/speech-to-text", headers=HEADERS,
+    r = await sarvam_post(f"{BASE}/speech-to-text", headers=HEADERS,
                           files={"file": (audio.filename or "task.webm", await audio.read(), "audio/webm")},
                           data={"model": "saaras:v4", "language_code": "unknown", "mode": "translate"})
     if r.status_code != 200:
@@ -434,6 +458,14 @@ static = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static), name="static")
 
 
+NO_CACHE = {"Cache-Control": "no-store"}
+
+
 @app.get("/")
+async def landing():
+    return FileResponse(static / "landing.html", headers=NO_CACHE)
+
+
+@app.get("/app")
 async def index():
-    return FileResponse(static / "index.html", headers={"Cache-Control": "no-store"})
+    return FileResponse(static / "app.html", headers=NO_CACHE)

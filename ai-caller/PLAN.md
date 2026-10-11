@@ -1,4 +1,6 @@
-# Mere Liye Call Kar — AI Caller (Build Plan)
+# Mere Liye Call Kar: original build plan
+
+> This was the v1 plan. What actually shipped (review step, real calls via Indus, history, whisper, landing page) is described in [README.md](README.md). The main deviation: planning moved from `sarvam-105b` to `sarvam-105b-conversations`, because 105B with reasoning took about 38s per plan.
 
 An AI agent that holds a phone conversation **for you** in Indian languages, gets the info you need, and hands you a summary.
 Built on Sarvam's stack — the same `sarvam-105b` family that powers **Indus by Sarvam**.
