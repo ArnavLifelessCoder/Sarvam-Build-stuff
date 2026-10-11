@@ -213,6 +213,11 @@
       <textarea id="task" placeholder="Ask the PG owner if a single room is free from next month, rent under ₹12,000, whether food is included, the deposit, and when I can visit."></textarea>
       <label class="f" for="facts">What it may share <span class="hint">optional</span></label>
       <textarea id="facts" placeholder="Working professional moving to Koramangala. Can visit Saturday after 4pm."></textarea>
+      <div class="note warn hidden" id="needsBox">
+        <b>Before it calls:</b> <span id="needsQ"></span>
+        <div style="display:flex;gap:8px;margin-top:10px"><input id="needsA" placeholder="Your answer — e.g. 4,000 by tonight" autocomplete="off">
+        <button class="btn btn-primary" id="needsGo" type="button">Continue</button><button class="btn btn-quiet" id="needsSkip" type="button">Skip</button></div>
+      </div>
       <div class="note" id="noteSpeaker">The AI only shares what you write above, never agrees to pay, and says it is calling on your behalf.</div>
       <div class="note warn hidden" id="noteReal"></div>
       <div class="actions">
@@ -236,6 +241,7 @@
     <label class="f">What it needs to find out <span class="hint">edit, remove or add</span></label>
     <div class="qlist" id="rvList"></div>
     <button class="mini" id="rvAdd" style="margin-top:10px"><svg class="icon"><use href="#i-plus"/></svg>Add a question</button>
+    <div class="note warn hidden" id="rvMissing"></div>
     <div class="note" id="rvNote"></div>
     <div class="actions">
       <button class="btn btn-line" id="rvBack"><svg class="icon"><use href="#i-left"/></svg>Edit task</button>
@@ -465,7 +471,7 @@ $("history").onclick = async e => {
 };
 
 // ---------- review step ----------
-async function prepare() {
+async function prepare(skipCheck = false) {
   const task = $("task").value.trim(), phone = $("phone").value.trim();
   if (!task) { $("task").focus(); return toast("Say what the call should get done first."); }
   if (callMode === "real") {
@@ -473,17 +479,32 @@ async function prepare() {
     if (!phone) { $("phone").focus(); return toast("Add the number to call."); }
     store.set("phone", phone);
   }
-  const body = { task, facts: $("facts").value.trim(), name: $("name").value.trim() || "Arnav", language: $("lang").value };
+  const body = { task, facts: $("facts").value.trim(), name: $("name").value.trim() || "Arnav", language: $("lang").value, skip_check: skipCheck };
   busy($("prepareBtn"), "Planning the call");
   try {
     const plan = await postJSON("/api/plan", body, 1);
+    if (plan.needs) { // a detail only you know is missing — ask before planning
+      $("needsQ").textContent = plan.needs.join(" ");
+      $("needsBox").classList.remove("hidden"); $("needsA").value = ""; $("needsA").focus();
+      return;
+    }
+    $("needsBox").classList.add("hidden");
     pending = { ...body, phone, mode: callMode, plan };
     renderReview();
     if (callMode === "speaker") prefetchOpening();
   } catch (e) { toast(e.message); }
   finally { unbusy($("prepareBtn")); }
 }
-$("prepareBtn").onclick = prepare;
+$("prepareBtn").onclick = () => prepare();
+$("needsGo").onclick = () => {
+  const a = $("needsA").value.trim(); if (!a) return $("needsA").focus();
+  $("facts").value = ($("facts").value.trim() + `
+${$("needsQ").textContent} ${a}`).trim();
+  store.set("draftFacts", $("facts").value);
+  prepare(true);
+};
+$("needsA").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $("needsGo").click(); } };
+$("needsSkip").onclick = () => { $("needsBox").classList.add("hidden"); prepare(true); };
 
 function renderReview() {
   const { plan, mode: m, phone } = pending;
@@ -492,6 +513,8 @@ function renderReview() {
   $("rvOpening").value = plan.opening;
   $("rvOpeningEn").textContent = plan.opening_en;
   renderQuestions();
+  $("rvMissing").classList.toggle("hidden", !(plan.missing || []).length);
+  $("rvMissing").innerHTML = `<b>Add these to the facts for a better call:</b> ${(plan.missing || []).map(esc).join(" · ")} <button class="mini" id="rvFix" style="margin-left:6px">Edit task</button>`;
   $("rvNote").textContent = m === "real"
     ? `Indus will ring ${phone} from your Sarvam number and run the call on its own. You'll get the transcript and summary when it ends.`
     : "Dial the number on your phone and put it on speaker next to this laptop. Press Start once they pick up.";
@@ -507,6 +530,7 @@ $("rvList").onclick = e => { const b = e.target.closest("[data-rm]"); if (b) { p
 $("rvAdd").onclick = () => { pending.plan.checklist.push({ item: "", value: null }); renderQuestions(); $("rvList").querySelector(".q:last-child input").focus(); };
 $("rvOpening").oninput = () => { $("rvOpeningEn").textContent = $("rvOpening").value.trim() === pending.plan.opening ? pending.plan.opening_en : "Edited — it will say your version."; };
 $("rvBack").onclick = () => show("setup");
+$("rvMissing").onclick = e => { if (e.target.id === "rvFix") { show("setup"); $("facts").focus(); } };
 $("rvStart").onclick = () => {
   pending.plan.checklist = pending.plan.checklist.filter(c => c.item.trim());
   if (!pending.plan.checklist.length) return toast("Keep at least one question.");

@@ -161,6 +161,7 @@ You are speaking out loud on a live phone call, so:
 - Write money with commas (12,000) and never as symbols-only.
 - You are {name}'s assistant. Never claim to be {name}. You never visit, pay or act yourself — {name} does (say "{name} will come", not "I will come"). If asked whether you are a robot/AI, say honestly that you are {name}'s AI assistant.
 - NEVER agree to pay, transfer money, share OTPs, bank details, or any personal info not given in the facts. Never make commitments not covered by the facts — say you'll confirm with {name}.
+- You represent {name}'s side. If the call is a REQUEST (money, a favour, a booking), clearly say what {name} wants using the task and facts (amount, reason, deadline) — never ask the other person for details only {name} would know (e.g. never ask "how much does he need?").
 - If they ask something you don't know, say you'll check with {name} and get back.
 - When every checklist item is answered (or the person clearly wants to stop), thank them, say {name} will follow up, and end politely."""
 
@@ -191,6 +192,19 @@ class PlanIn(BaseModel):
     facts: str = ""
     name: str = "Arnav"
     language: str = "auto"
+    skip_check: bool = False  # user already answered / skipped the missing-details question
+
+
+MONEY_WORDS = re.compile(r"\b(money|paise|paisa|pocket money|rupees?|rs|fees?|loan|borrow|udhaar|udhar|send me)\b|₹", re.I)
+
+
+def missing_details(p: PlanIn) -> list[str]:
+    """Details only the user knows that would otherwise make the AI ask the other person about the user's own needs.
+    Deterministic on purpose: the LLM version flagged normal enquiries (PG, gas, tailor) as incomplete."""
+    text = f"{p.task} {p.facts}"
+    if MONEY_WORDS.search(text) and not re.search(r"\d", text):
+        return ["How much money do you need, and by when?"]
+    return []
 
 
 async def make_plan(p: PlanIn) -> dict:
@@ -198,20 +212,32 @@ async def make_plan(p: PlanIn) -> dict:
     out = await chat_json(TURN_MODEL, [
         {"role": "system", "content": agent_rules(p.name) + """
 
-You are now PREPARING the call. Return JSON only:
+You are now PREPARING the call. First decide what kind of call it is:
+- REQUEST: {name} wants something from them (money, help, a booking, a refund). The opening states the request with the concrete details from the task/facts.
+- ENQUIRY: {name} wants information (availability, price, timing). The opening asks the first question.
+The checklist is ONLY what we need to hear FROM THEM (e.g. "Will she send the ₹4,000?", "By what time?", "Is the room free?") — never facts {name} already gave or should give.
+If a detail only {name} can supply is missing (e.g. how much money, which date), list it in "missing" and keep the opening sensible without inventing it.
+Example: task "call mom, I need money" with no amount in facts -> kind "request", missing ["How much money do you need, and by when?"], checklist ["Can she send the money?", "By when can she send it?", "How will she send it (UPI/cash)?"], opening says {name} needs some money and asks if she can help — it does NOT ask her how much he needs.
+Use a fitting relationship register (e.g. "Mummy"/"Maa" for a parent, "bhaiya" for a shopkeeper).
+Return JSON only:
 {"callee": "<who we are calling, 2-4 words English>",
- "checklist": ["<3 to 6 short English questions we must get answered>"],
- "opening": "<the first thing you say when they pick up, in the target language script: greet, say you are calling on behalf of NAME, state the purpose in a few words, ask the first checklist question>",
- "opening_en": "<English translation of opening>"}"""},
+ "kind": "request" | "enquiry",
+ "checklist": ["<2 to 6 short English items we need to hear from them>"],
+ "missing": ["<details only the user can supply that are absent, as short questions to the user; empty if none>"],
+ "opening": "<first thing you say when they pick up, target language script: greet, say you are calling on behalf of NAME, state the request or ask the first question>",
+ "opening_en": "<English translation of opening>"}""".replace("{name}", p.name)},
         {"role": "user", "content": f"Caller name: {p.name}\nTask: {p.task}\nFacts you may use: {p.facts or '(none)'}\nTarget language: {LANGS[lang][0]} ({lang})"},
     ], max_tokens=1200)
     return {"callee": out.get("callee", "the other person"),
             "checklist": [{"item": str(i), "value": None} for i in out.get("checklist", [])][:6],
-            "opening": out.get("opening") or "Namaste ji.", "opening_en": out.get("opening_en", ""), "language": lang}
+            "opening": out.get("opening") or "Namaste ji.", "opening_en": out.get("opening_en", ""), "language": lang,
+            "missing": [str(m) for m in out.get("missing") or []][:3]}
 
 
 @app.post("/api/plan")
 async def plan(p: PlanIn):
+    if not p.skip_check and (needs := missing_details(p)):
+        return {"needs": needs}
     return await make_plan(p)
 
 
