@@ -4,6 +4,8 @@ Projects built on [Sarvam AI](https://www.sarvam.ai) and **Indus by Sarvam**.
 
 ## [Mere Liye Call Kar](ai-caller/): an AI that makes your phone calls
 
+Deployed at: https://mere-liye-call-kar.vercel.app/
+
 Tell it what you need, check the plan, and it calls the PG owner, the clinic or the gas agency in whatever Indian language they speak. It gets the answers and hands you a summary.
 
 - **Two ways to call**: speakerphone (your phone on speaker, the AI runs on your laptop) or **real calls via Indus Voice Agents** (Instant Outbound API, with the transcript returned by webhook)
